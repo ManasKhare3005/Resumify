@@ -578,39 +578,83 @@ app.post('/api/import/portfolio', async (req, res) => {
       return res.status(400).json({ error: 'Invalid URL format' });
     }
 
-    // Use Puppeteer to render JavaScript-heavy sites (React, Next.js, etc.)
-    const puppeteer = (await import('puppeteer')).default;
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    });
-
     let textContent = '';
+
+    // Try fetch first (works for static/SSR sites), fall back to Puppeteer for JS-heavy sites
+    let usedFetch = false;
     try {
-      const page = await browser.newPage();
-      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-      await page.goto(parsedUrl.toString(), { waitUntil: 'networkidle2', timeout: 20000 });
+      const response = await fetch(parsedUrl.toString(), {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+        signal: AbortSignal.timeout(15000),
+      });
+      const html = await response.text();
 
-      // Wait a bit for any lazy-loaded content
-      await new Promise(r => setTimeout(r, 2000));
+      // Extract useful links
+      const links = [];
+      const linkRegex = /href=["'](https?:\/\/[^"']*(?:linkedin\.com|github\.com|twitter\.com|x\.com)[^"']*)["']/gi;
+      const mailtoRegex = /href=["'](mailto:[^"']*)["']/gi;
+      let match;
+      while ((match = linkRegex.exec(html)) !== null) links.push(match[1]);
+      while ((match = mailtoRegex.exec(html)) !== null) links.push(match[1]);
 
-      // Extract text + links from the fully rendered page
-      textContent = await page.evaluate(() => {
-        // Grab all link hrefs that look useful (LinkedIn, GitHub, mailto, etc.)
-        const links = [];
-        document.querySelectorAll('a[href]').forEach(a => {
-          const href = a.href;
-          if (href.includes('linkedin.com') || href.includes('github.com') || href.startsWith('mailto:') || href.includes('twitter.com') || href.includes('x.com')) {
-            links.push(href);
-          }
+      // Strip HTML tags to get text content
+      const text = html
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&#?\w+;/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const linkSection = links.length ? '\n\nLinks found: ' + links.join(', ') : '';
+      textContent = (text + linkSection).trim();
+      usedFetch = true;
+    } catch {
+      // fetch failed, try Puppeteer
+    }
+
+    // Fall back to Puppeteer if fetch didn't get enough content
+    if (!usedFetch || textContent.length < 100) {
+      try {
+        const puppeteer = (await import('puppeteer')).default;
+        const browser = await puppeteer.launch({
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
         });
 
-        const bodyText = document.body?.innerText || '';
-        const linkSection = links.length ? '\n\nLinks found: ' + links.join(', ') : '';
-        return (bodyText + linkSection).trim();
-      });
-    } finally {
-      await browser.close();
+        try {
+          const page = await browser.newPage();
+          await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+          await page.goto(parsedUrl.toString(), { waitUntil: 'networkidle2', timeout: 20000 });
+
+          await new Promise(r => setTimeout(r, 2000));
+
+          textContent = await page.evaluate(() => {
+            const links = [];
+            document.querySelectorAll('a[href]').forEach(a => {
+              const href = a.href;
+              if (href.includes('linkedin.com') || href.includes('github.com') || href.startsWith('mailto:') || href.includes('twitter.com') || href.includes('x.com')) {
+                links.push(href);
+              }
+            });
+
+            const bodyText = document.body?.innerText || '';
+            const linkSection = links.length ? '\n\nLinks found: ' + links.join(', ') : '';
+            return (bodyText + linkSection).trim();
+          });
+        } finally {
+          await browser.close();
+        }
+      } catch (puppeteerError) {
+        // Puppeteer not available (e.g. on Render), use whatever fetch got
+        if (textContent.length < 50) {
+          console.error('Puppeteer fallback failed:', puppeteerError.message);
+        }
+      }
     }
 
     textContent = textContent.replace(/\s+/g, ' ').trim().slice(0, 12000);
