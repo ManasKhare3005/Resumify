@@ -665,6 +665,7 @@ app.post('/api/import/portfolio', async (req, res) => {
         if (jsContent.length > 0) {
           // Extract meaningful string literals from the JS bundle
           const strings = [];
+          let match;
           const strRegex = /["']([^"']{10,500})["']/g;
           while ((match = strRegex.exec(jsContent)) !== null) {
             const str = match[1].trim();
