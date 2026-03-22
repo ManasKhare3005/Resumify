@@ -580,16 +580,8 @@ app.post('/api/import/portfolio', async (req, res) => {
 
     let textContent = '';
 
-    // Try fetch first (works for static/SSR sites), fall back to Puppeteer for JS-heavy sites
-    let usedFetch = false;
-    try {
-      const response = await fetch(parsedUrl.toString(), {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-        signal: AbortSignal.timeout(15000),
-      });
-      const html = await response.text();
-
-      // Extract useful links
+    // Helper to extract text and links from HTML
+    function extractFromHtml(html) {
       const links = [];
       const linkRegex = /href=["'](https?:\/\/[^"']*(?:linkedin\.com|github\.com|twitter\.com|x\.com)[^"']*)["']/gi;
       const mailtoRegex = /href=["'](mailto:[^"']*)["']/gi;
@@ -597,7 +589,6 @@ app.post('/api/import/portfolio', async (req, res) => {
       while ((match = linkRegex.exec(html)) !== null) links.push(match[1]);
       while ((match = mailtoRegex.exec(html)) !== null) links.push(match[1]);
 
-      // Strip HTML tags to get text content
       const text = html
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -611,14 +602,95 @@ app.post('/api/import/portfolio', async (req, res) => {
         .trim();
 
       const linkSection = links.length ? '\n\nLinks found: ' + links.join(', ') : '';
-      textContent = (text + linkSection).trim();
-      usedFetch = true;
-    } catch {
-      // fetch failed, try Puppeteer
+      return (text + linkSection).trim();
     }
 
-    // Fall back to Puppeteer if fetch didn't get enough content
-    if (!usedFetch || textContent.length < 100) {
+    // Strategy 1: Direct fetch (works for static/SSR sites)
+    try {
+      const response = await fetch(parsedUrl.toString(), {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+        signal: AbortSignal.timeout(15000),
+      });
+      const html = await response.text();
+      textContent = extractFromHtml(html);
+    } catch {
+      // fetch failed
+    }
+
+    // Strategy 2: For JS-heavy SPAs, try Google's web cache to get rendered content
+    if (textContent.length < 100) {
+      try {
+        const cacheUrl = `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(parsedUrl.toString())}`;
+        const response = await fetch(cacheUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (response.ok) {
+          const html = await response.text();
+          const cached = extractFromHtml(html);
+          if (cached.length > textContent.length) textContent = cached;
+        }
+      } catch {
+        // cache not available
+      }
+    }
+
+    // Strategy 3: For SPAs, fetch the JS bundle and extract string literals
+    if (textContent.length < 100) {
+      try {
+        const response = await fetch(parsedUrl.toString(), {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+          signal: AbortSignal.timeout(15000),
+        });
+        const html = await response.text();
+
+        // Find JS bundle URLs
+        const scriptMatches = [...html.matchAll(/src=["']([^"']*\.js)["']/gi)];
+        let jsContent = '';
+
+        for (const m of scriptMatches) {
+          try {
+            const jsUrl = new URL(m[1], parsedUrl).toString();
+            const jsRes = await fetch(jsUrl, { signal: AbortSignal.timeout(15000) });
+            const jsText = await jsRes.text();
+            jsContent += jsText + '\n';
+          } catch {
+            // skip failed JS fetches
+          }
+        }
+
+        if (jsContent.length > 0) {
+          // Extract meaningful string literals from the JS bundle
+          const strings = [];
+          const strRegex = /["'`]([A-Z][^"'`]{15,500})["'`]/g;
+          while ((match = strRegex.exec(jsContent)) !== null) {
+            const str = match[1];
+            // Filter for meaningful content (sentences, descriptions, not code)
+            if (/[a-z].*\s+[a-z]/i.test(str) && !/^(function|return|import|export|const|var|let|if|else|switch|case)\b/.test(str) && !/[{}()=><;]/.test(str)) {
+              strings.push(str);
+            }
+          }
+
+          // Also grab email addresses, links, and names from the bundle
+          const emailMatches = [...jsContent.matchAll(/["']([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})["']/g)];
+          const urlMatches = [...jsContent.matchAll(/["'](https?:\/\/(?:www\.)?(?:linkedin\.com|github\.com|twitter\.com|x\.com)[^"']+)["']/g)];
+
+          const extras = [];
+          emailMatches.forEach(m => extras.push('Email: ' + m[1]));
+          urlMatches.forEach(m => extras.push(m[1]));
+
+          const bundleText = strings.join('\n') + '\n' + extras.join('\n');
+          if (bundleText.trim().length > textContent.length) {
+            textContent = bundleText.trim();
+          }
+        }
+      } catch {
+        // JS extraction failed
+      }
+    }
+
+    // Strategy 4: Puppeteer (works locally, not on Render)
+    if (textContent.length < 100) {
       try {
         const puppeteer = (await import('puppeteer')).default;
         const browser = await puppeteer.launch({
@@ -630,7 +702,6 @@ app.post('/api/import/portfolio', async (req, res) => {
           const page = await browser.newPage();
           await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
           await page.goto(parsedUrl.toString(), { waitUntil: 'networkidle2', timeout: 20000 });
-
           await new Promise(r => setTimeout(r, 2000));
 
           textContent = await page.evaluate(() => {
@@ -641,7 +712,6 @@ app.post('/api/import/portfolio', async (req, res) => {
                 links.push(href);
               }
             });
-
             const bodyText = document.body?.innerText || '';
             const linkSection = links.length ? '\n\nLinks found: ' + links.join(', ') : '';
             return (bodyText + linkSection).trim();
@@ -649,11 +719,8 @@ app.post('/api/import/portfolio', async (req, res) => {
         } finally {
           await browser.close();
         }
-      } catch (puppeteerError) {
-        // Puppeteer not available (e.g. on Render), use whatever fetch got
-        if (textContent.length < 50) {
-          console.error('Puppeteer fallback failed:', puppeteerError.message);
-        }
+      } catch {
+        // Puppeteer not available
       }
     }
 
