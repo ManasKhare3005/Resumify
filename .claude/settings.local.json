@@ -11,7 +11,9 @@
       "Bash(node --input-type=module -e \":*)",
       "Bash(ls \"C:/Users/Manas Khare/Desktop/My Projects/resume-builder/.env\"*)",
       "Bash(npm view:*)",
-      "Bash(curl -s \"https://manaskhare.netlify.app/\")"
+      "Bash(curl -s \"https://manaskhare.netlify.app/\")",
+      "Bash(curl -s \"https://manaskhare.netlify.app/static/js/main.e8522a61.js\")",
+      "Bash(node:*)"
     ]
   }
 }

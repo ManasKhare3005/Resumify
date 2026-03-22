@@ -662,16 +662,36 @@ app.post('/api/import/portfolio', async (req, res) => {
         if (jsContent.length > 0) {
           // Extract meaningful string literals from the JS bundle
           const strings = [];
-          const strRegex = /["'`]([A-Z][^"'`]{15,500})["'`]/g;
+          const strRegex = /["']([^"']{10,500})["']/g;
           while ((match = strRegex.exec(jsContent)) !== null) {
-            const str = match[1];
-            // Filter for meaningful content (sentences, descriptions, not code)
-            if (/[a-z].*\s+[a-z]/i.test(str) && !/^(function|return|import|export|const|var|let|if|else|switch|case)\b/.test(str) && !/[{}()=><;]/.test(str)) {
+            const str = match[1].trim();
+            // Filter: must have spaces (real sentences), no code patterns
+            if (
+              str.split(/\s+/).length >= 3 &&
+              !/[{}()=><;]/.test(str) &&
+              !/^(function|return|import|export|const|var|let|if|else|switch|case|typeof|undefined|null)\b/.test(str) &&
+              !/^(Minified|Objects are not|React\.|The argument|Expected|Cannot|Warning|Suspense|for the full message)/i.test(str) &&
+              !/node_modules|webpack|__esModule|displayName|prototype|focusin|focusout|keydown|keyup|mousedown|mouseup|compositionend|compositionstart|contextmenu|dragend|selectionchange/.test(str)
+            ) {
               strings.push(str);
             }
           }
 
-          // Also grab email addresses, links, and names from the bundle
+          // Also grab short meaningful strings (names, titles, dates, locations)
+          const shortRegex = /["']([A-Z][^"']{3,50})["']/g;
+          while ((match = shortRegex.exec(jsContent)) !== null) {
+            const str = match[1].trim();
+            if (
+              !/[{}()=><;]/.test(str) &&
+              !/^(Minified|Objects|React|The |Expected|Cannot|Warning|Suspense|Error|DOM|HTML|SVG|Animation|Composition|Transition)/i.test(str) &&
+              !/node_modules|webpack|__esModule|displayName|prototype|className|onClick|onChange|focusin|focusout|keydown|mousedown/.test(str) &&
+              /[a-z]/.test(str)
+            ) {
+              strings.push(str);
+            }
+          }
+
+          // Grab email addresses, links, and names from the bundle
           const emailMatches = [...jsContent.matchAll(/["']([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})["']/g)];
           const urlMatches = [...jsContent.matchAll(/["'](https?:\/\/(?:www\.)?(?:linkedin\.com|github\.com|twitter\.com|x\.com)[^"']+)["']/g)];
 
