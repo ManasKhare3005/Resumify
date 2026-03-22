@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx vite:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(psql --version)",
+      "Bash(timeout 8 node server/index.js)",
+      "Bash(node -e \":*)",
+      "Bash(node -e \"const pg = require\\(''pg''\\); console.log\\(''pg version:'', require\\(''./node_modules/pg/package.json''\\).version\\)\")",
+      "Bash(node --input-type=module -e \":*)",
+      "Bash(ls \"C:/Users/Manas Khare/Desktop/My Projects/resume-builder/.env\"*)",
+      "Bash(npm view:*)"
+    ]
+  }
+}
