@@ -37,7 +37,7 @@ export default function AuthPage() {
             </svg>
           </div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-            Resume<span className="text-violet-600">Builder</span>
+            Resum<span className="text-violet-600">ify</span>
           </h1>
           <p className="text-sm text-gray-400 mt-1">
             {mode === 'login' ? 'Welcome back! Sign in to continue.' : 'Create an account to get started.'}

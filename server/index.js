@@ -514,10 +514,10 @@ app.post('/api/import/github', async (req, res) => {
 
     const [profileRes, reposRes] = await Promise.all([
       fetch(`https://api.github.com/users/${encodeURIComponent(username)}`, {
-        headers: { 'User-Agent': 'ResumeBuilder/1.0' }
+        headers: { 'User-Agent': 'Resumify/1.0' }
       }),
       fetch(`https://api.github.com/users/${encodeURIComponent(username)}/repos?sort=stars&per_page=20`, {
-        headers: { 'User-Agent': 'ResumeBuilder/1.0' }
+        headers: { 'User-Agent': 'Resumify/1.0' }
       }),
     ]);
 
@@ -641,7 +641,7 @@ app.post('/api/import/portfolio', async (req, res) => {
 
 const distPath = path.join(__dirname, '..', 'dist');
 app.use(express.static(distPath));
-app.get('*', (req, res) => {
+app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 

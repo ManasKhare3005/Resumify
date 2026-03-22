@@ -222,7 +222,7 @@ export default function OnboardingScreen({ onComplete }) {
             </svg>
           </div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            Welcome to Resume<span className="text-violet-600">Builder</span>
+            Welcome to Resum<span className="text-violet-600">ify</span>
           </h1>
           <p className="text-gray-500 text-sm max-w-md mx-auto">
             How would you like to get started? Pick a source to auto-fill your resume, or start fresh.
