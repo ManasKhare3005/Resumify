@@ -613,12 +613,13 @@ app.post('/api/import/portfolio', async (req, res) => {
       });
       const html = await response.text();
       textContent = extractFromHtml(html);
-    } catch {
-      // fetch failed
+      console.log('[Portfolio] Strategy 1 (fetch):', textContent.length, 'chars');
+    } catch (e) {
+      console.log('[Portfolio] Strategy 1 failed:', e.message);
     }
 
     // Strategy 2: For JS-heavy SPAs, try Google's web cache to get rendered content
-    if (textContent.length < 100) {
+    if (textContent.length < 200) {
       try {
         const cacheUrl = `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(parsedUrl.toString())}`;
         const response = await fetch(cacheUrl, {
@@ -630,13 +631,15 @@ app.post('/api/import/portfolio', async (req, res) => {
           const cached = extractFromHtml(html);
           if (cached.length > textContent.length) textContent = cached;
         }
-      } catch {
-        // cache not available
+      } catch (e) {
+        console.log('[Portfolio] Strategy 2 failed:', e.message);
       }
     }
 
+    console.log('[Portfolio] After strategy 2:', textContent.length, 'chars');
+
     // Strategy 3: For SPAs, fetch the JS bundle and extract string literals
-    if (textContent.length < 100) {
+    if (textContent.length < 200) {
       try {
         const response = await fetch(parsedUrl.toString(), {
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
@@ -699,18 +702,21 @@ app.post('/api/import/portfolio', async (req, res) => {
           emailMatches.forEach(m => extras.push('Email: ' + m[1]));
           urlMatches.forEach(m => extras.push(m[1]));
 
-          const bundleText = strings.join('\n') + '\n' + extras.join('\n');
+          const bundleText = [...new Set(strings)].join('\n') + '\n' + extras.join('\n');
+          console.log('[Portfolio] Strategy 3 (JS bundle):', bundleText.trim().length, 'chars,', strings.length, 'strings found');
           if (bundleText.trim().length > textContent.length) {
             textContent = bundleText.trim();
           }
         }
-      } catch {
-        // JS extraction failed
+      } catch (e) {
+        console.log('[Portfolio] Strategy 3 failed:', e.message);
       }
     }
 
+    console.log('[Portfolio] Final textContent length:', textContent.length);
+
     // Strategy 4: Puppeteer (works locally, not on Render)
-    if (textContent.length < 100) {
+    if (textContent.length < 200) {
       try {
         const puppeteer = (await import('puppeteer')).default;
         const browser = await puppeteer.launch({
